@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
 import { ethers } from "ethers";
 import { getContracts } from "./utils/contract";
+import CreateNFT from "./components/CreateNFT";
 
-const SEPOLIA_CHAIN_ID = "0xaa36a7"; // 11155111 in hex
+const SEPOLIA_CHAIN_ID = "0xaa36a7"; // 11155111
 
 function App() {
   const [account, setAccount] = useState("");
@@ -27,7 +28,7 @@ function App() {
           params: [{ chainId: SEPOLIA_CHAIN_ID }],
         });
         return true;
-      } catch (switchError) {
+      } catch (err) {
         setError("Please switch MetaMask network to Sepolia.");
         return false;
       }
@@ -65,7 +66,7 @@ function App() {
             itemId: Number(item.itemId),
             tokenId: Number(item.tokenId),
             seller: item.seller,
-            price: ethers.formatEther(item.price),
+            price: item.price, // keep BigInt here
           });
         }
       }
@@ -73,17 +74,7 @@ function App() {
       setItems(itemsArray);
     } catch (err) {
       console.error("Blockchain sync failed:", err);
-
-      if (
-        err.message?.includes("RPC endpoint returned too many errors") ||
-        err.code === -32002
-      ) {
-        setError(
-          "MetaMask RPC is rate-limited. Please wait 30 seconds or change RPC in MetaMask settings."
-        );
-      } else {
-        setError(err.message || "Failed to load marketplace.");
-      }
+      setError(err.message || "Failed to load marketplace.");
     } finally {
       setLoading(false);
     }
@@ -100,7 +91,7 @@ function App() {
       const { marketplace } = contracts;
 
       const tx = await marketplace.purchaseItem(item.itemId, {
-        value: ethers.parseEther(item.price),
+        value: item.price,
       });
 
       await tx.wait();
@@ -127,7 +118,6 @@ function App() {
       try {
         const provider = new ethers.BrowserProvider(window.ethereum);
         const accounts = await provider.send("eth_requestAccounts", []);
-
         setAccount(accounts[0]);
 
         await loadMarketplace();
@@ -140,7 +130,6 @@ function App() {
 
     init();
 
-    // Better than page reload
     window.ethereum?.on("accountsChanged", loadMarketplace);
     window.ethereum?.on("chainChanged", loadMarketplace);
 
@@ -180,6 +169,12 @@ function App() {
         </div>
       )}
 
+      {/* Create NFT Section */}
+      <CreateNFT />
+
+      {/* Marketplace Section */}
+      <h2>Marketplace</h2>
+
       {loading ? (
         <p>⏳ Loading blockchain data...</p>
       ) : items.length === 0 ? (
@@ -196,7 +191,7 @@ function App() {
               }}
             >
               <h3>NFT #{item.tokenId}</h3>
-              <p>{item.price} ETH</p>
+              <p>{ethers.formatEther(item.price)} ETH</p>
 
               <button
                 onClick={() => buyNFT(item)}
