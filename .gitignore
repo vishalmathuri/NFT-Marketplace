@@ -1,0 +1,58 @@
+# ===============================
+# Node Modules
+# ===============================
+node_modules/
+frontend/node_modules/
+Smart_contract/node_modules/
+
+# ===============================
+# Environment Files
+# ===============================
+.env
+.env.*
+frontend/.env
+Smart_contract/.env
+
+# ===============================
+# Build / Dist
+# ===============================
+dist/
+build/
+frontend/dist/
+frontend/build/
+
+# ===============================
+# Hardhat Files
+# ===============================
+Smart_contract/artifacts/
+Smart_contract/cache/
+Smart_contract/typechain/
+Smart_contract/typechain-types/
+Smart_contract/coverage/
+Smart_contract/coverage.json
+Smart_contract/ignition/deployments/
+
+# ===============================
+# Logs
+# ===============================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ===============================
+# OS Files
+# ===============================
+.DS_Store
+Thumbs.db
+
+# ===============================
+# IDE Files
+# ===============================
+.vscode/
+.idea/
+
+# ===============================
+# Misc
+# ===============================
+*.lock
