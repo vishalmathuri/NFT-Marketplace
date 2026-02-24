@@ -3,213 +3,242 @@ import { ethers } from "ethers";
 import { getContracts } from "./utils/contract";
 import CreateNFT from "./components/CreateNFT";
 
-const SEPOLIA_CHAIN_ID = "0xaa36a7"; // 11155111
+const SEPOLIA_CHAIN_ID = "0xaa36a7";
 
 function App() {
   const [account, setAccount] = useState("");
   const [items, setItems] = useState([]);
+  const [nft, setNFT] = useState(null);
+  const [marketplace, setMarketplace] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
-  // -----------------------------
-  // Ensure MetaMask on Sepolia
-  // -----------------------------
   const ensureSepolia = async () => {
-    if (!window.ethereum) return false;
-
     const chainId = await window.ethereum.request({
       method: "eth_chainId",
     });
 
     if (chainId !== SEPOLIA_CHAIN_ID) {
-      try {
-        await window.ethereum.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: SEPOLIA_CHAIN_ID }],
-        });
-        return true;
-      } catch (err) {
-        setError("Please switch MetaMask network to Sepolia.");
-        return false;
-      }
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: SEPOLIA_CHAIN_ID }],
+      });
     }
-
-    return true;
   };
 
-  // -----------------------------
-  // Load Marketplace
-  // -----------------------------
   const loadMarketplace = useCallback(async () => {
     try {
       setLoading(true);
-      setError(null);
-
-      const ok = await ensureSepolia();
-      if (!ok) return;
+      await ensureSepolia();
 
       const contracts = await getContracts();
       if (!contracts) return;
 
-      const { marketplace } = contracts;
+      setNFT(contracts.nft);
+      setMarketplace(contracts.marketplace);
 
-      const itemCount = await marketplace.itemCount();
-      const count = Number(itemCount);
-
+      const itemCount = Number(await contracts.marketplace.itemCount());
       const itemsArray = [];
 
-      for (let i = 1; i <= count; i++) {
-        const item = await marketplace.items(i);
+      for (let i = 1; i <= itemCount; i++) {
+        const item = await contracts.marketplace.items(i);
 
         if (!item.sold) {
           itemsArray.push({
             itemId: Number(item.itemId),
             tokenId: Number(item.tokenId),
-            seller: item.seller,
-            price: item.price, // keep BigInt here
+            price: item.price,
           });
         }
       }
 
       setItems(itemsArray);
     } catch (err) {
-      console.error("Blockchain sync failed:", err);
-      setError(err.message || "Failed to load marketplace.");
+      console.error(err);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // -----------------------------
-  // Buy NFT
-  // -----------------------------
-  const buyNFT = async (item) => {
-    try {
-      const contracts = await getContracts();
-      if (!contracts) return;
-
-      const { marketplace } = contracts;
-
-      const tx = await marketplace.purchaseItem(item.itemId, {
-        value: item.price,
-      });
-
-      await tx.wait();
-
-      alert("Purchase successful!");
-      loadMarketplace();
-    } catch (err) {
-      console.error("Purchase failed:", err);
-      alert("Transaction failed.");
-    }
+  const connectWallet = async () => {
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const accounts = await provider.send("eth_requestAccounts", []);
+    setAccount(accounts[0]);
+    await loadMarketplace();
   };
 
-  // -----------------------------
-  // Initial Connect
-  // -----------------------------
+  const buyNFT = async (item) => {
+    const tx = await marketplace.buyNFT(item.itemId, {
+      value: item.price,
+    });
+    await tx.wait();
+    loadMarketplace();
+  };
+
   useEffect(() => {
-    const init = async () => {
-      if (!window.ethereum) {
-        setError("Please install MetaMask.");
-        setLoading(false);
-        return;
-      }
+    const checkConnection = async () => {
+      if (!window.ethereum) return;
 
-      try {
-        const provider = new ethers.BrowserProvider(window.ethereum);
-        const accounts = await provider.send("eth_requestAccounts", []);
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const accounts = await provider.send("eth_accounts", []);
+
+      if (accounts.length > 0) {
         setAccount(accounts[0]);
-
         await loadMarketplace();
-      } catch (err) {
-        console.error("Connection failed:", err);
-        setError("Wallet connection failed.");
+      } else {
         setLoading(false);
       }
     };
 
-    init();
-
-    window.ethereum?.on("accountsChanged", loadMarketplace);
-    window.ethereum?.on("chainChanged", loadMarketplace);
-
-    return () => {
-      window.ethereum?.removeListener("accountsChanged", loadMarketplace);
-      window.ethereum?.removeListener("chainChanged", loadMarketplace);
-    };
+    checkConnection();
   }, [loadMarketplace]);
 
-  // -----------------------------
-  // UI
-  // -----------------------------
   return (
-    <div style={{ padding: "40px", fontFamily: "Segoe UI" }}>
-      <h1>🖼️ NFT Marketplace (Sepolia)</h1>
-
-      <p>
-        <strong>Wallet:</strong>{" "}
-        {account ? (
-          <span style={{ color: "green" }}>{account}</span>
-        ) : (
-          "Not Connected"
-        )}
-      </p>
-
-      {error && (
-        <div
+    <div
+      style={{
+        minHeight: "100vh",
+        width: "100%",
+        background:
+          "linear-gradient(135deg, #0f0c29, #302b63, #24243e)",
+        color: "#fff",
+      }}
+    >
+      {/* Navbar */}
+      <div
+        style={{
+          width: "100%",
+          padding: "20px 60px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          background: "rgba(0,0,0,0.3)",
+          backdropFilter: "blur(15px)",
+          borderBottom: "1px solid rgba(255,255,255,0.1)",
+        }}
+      >
+        <h1
           style={{
-            background: "#ffe6e6",
-            padding: "10px",
-            borderRadius: "8px",
-            marginBottom: "20px",
-            color: "red",
+            fontSize: "26px",
+            background: "linear-gradient(90deg,#a18cd1,#fbc2eb)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
           }}
         >
-          {error}
-        </div>
-      )}
+          💜 Royal NFT Marketplace
+        </h1>
 
-      {/* Create NFT Section */}
-      <CreateNFT />
+        {account ? (
+          <div
+            style={{
+              padding: "8px 18px",
+              borderRadius: "30px",
+              background: "rgba(255,255,255,0.1)",
+              fontSize: "14px",
+            }}
+          >
+            {account.slice(0, 6)}...{account.slice(-4)}
+          </div>
+        ) : (
+          <button
+            onClick={connectWallet}
+            style={{
+              padding: "10px 22px",
+              borderRadius: "25px",
+              border: "none",
+              background: "linear-gradient(90deg,#a18cd1,#fbc2eb)",
+              color: "#000",
+              fontWeight: "bold",
+              cursor: "pointer",
+            }}
+          >
+            Connect Wallet
+          </button>
+        )}
+      </div>
 
-      {/* Marketplace Section */}
-      <h2>Marketplace</h2>
+      {/* Content */}
+      <div
+        style={{
+          width: "100%",
+          padding: "50px 80px",
+        }}
+      >
+        <CreateNFT
+          nft={nft}
+          marketplace={marketplace}
+          reloadMarketplace={loadMarketplace}
+        />
 
-      {loading ? (
-        <p>⏳ Loading blockchain data...</p>
-      ) : items.length === 0 ? (
-        <p>No NFTs available.</p>
-      ) : (
-        <div style={{ display: "grid", gap: "20px" }}>
-          {items.map((item) => (
-            <div
-              key={item.itemId}
-              style={{
-                padding: "20px",
-                border: "1px solid #ddd",
-                borderRadius: "10px",
-              }}
-            >
-              <h3>NFT #{item.tokenId}</h3>
-              <p>{ethers.formatEther(item.price)} ETH</p>
+        <h2
+          style={{
+            marginTop: "70px",
+            fontSize: "32px",
+            marginBottom: "20px",
+          }}
+        >
+          Marketplace
+        </h2>
 
-              <button
-                onClick={() => buyNFT(item)}
+        {loading ? (
+          <p>Loading NFTs...</p>
+        ) : items.length === 0 ? (
+          <p>No NFTs available</p>
+        ) : (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(auto-fit, minmax(280px, 1fr))",
+              gap: "30px",
+            }}
+          >
+            {items.map((item) => (
+              <div
+                key={item.itemId}
                 style={{
-                  padding: "10px 15px",
-                  background: "#007bff",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: "5px",
-                  cursor: "pointer",
+                  padding: "25px",
+                  borderRadius: "20px",
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  backdropFilter: "blur(20px)",
+                  boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
+                  transition: "0.3s ease",
                 }}
               >
-                Buy
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+                <h3 style={{ marginBottom: "15px" }}>
+                  NFT #{item.tokenId}
+                </h3>
+
+                <p
+                  style={{
+                    marginBottom: "20px",
+                    fontSize: "18px",
+                    color: "#d1c4e9",
+                  }}
+                >
+                  {ethers.formatEther(item.price)} ETH
+                </p>
+
+                <button
+                  onClick={() => buyNFT(item)}
+                  style={{
+                    width: "100%",
+                    padding: "12px",
+                    borderRadius: "12px",
+                    border: "none",
+                    background:
+                      "linear-gradient(90deg,#a18cd1,#fbc2eb)",
+                    color: "#000",
+                    fontWeight: "bold",
+                    cursor: "pointer",
+                  }}
+                >
+                  Buy NFT
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
