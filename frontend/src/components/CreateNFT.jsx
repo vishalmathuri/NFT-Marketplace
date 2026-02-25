@@ -2,115 +2,108 @@ import { useState } from "react";
 import axios from "axios";
 import { ethers } from "ethers";
 
-const BACKEND_URL = "https://nft-marketplace-r1az.onrender.com";
+const backendURL = "https://nft-marketplace-r1az.onrender.com";
 
-function CreateNFT({ nft, marketplace, reloadMarketplace }) {
-  const [image, setImage] = useState(null);
+const CreateNFT = ({ contract, loadMarketplaceItems }) => {
+  const [file, setFile] = useState(null);
   const [price, setPrice] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const uploadAndMint = async () => {
-    if (!image || !price) {
-      alert("Please select image and enter price");
-      return;
-    }
+  const handleFileChange = (e) => {
+    setFile(e.target.files[0]);
+  };
 
-    if (!nft || !marketplace) {
-      alert("Contracts not loaded yet");
-      return;
-    }
+  const createNFT = async () => {
+    if (!file || !price) return alert("All fields required");
 
     try {
       setLoading(true);
 
-      // 1️⃣ Upload Image to Backend
       const reader = new FileReader();
-      reader.readAsDataURL(image);
 
+      reader.readAsDataURL(file);
       reader.onloadend = async () => {
-        const imageRes = await axios.post(
-          `${BACKEND_URL}/upload-image`,
-          {
-            imageBase64: reader.result,
-          }
-        );
+        // Upload Image
+        const imageRes = await axios.post(`${backendURL}/upload-image`, {
+          imageBase64: reader.result,
+        });
 
-        const imageHash = imageRes.data.IpfsHash;
-        const imageURL = `https://gateway.pinata.cloud/ipfs/${imageHash}`;
+        const imageURL = imageRes.data.imageURL;
 
-        // 2️⃣ Upload Metadata
-        const metadataRes = await axios.post(
-          `${BACKEND_URL}/upload-metadata`,
-          {
-            name: "NFT Token",
-            description: "Royal Purple NFT",
-            image: imageURL,
-          }
-        );
+        // Upload Metadata
+        const metadataRes = await axios.post(`${backendURL}/upload-metadata`, {
+          name: "Royal Purple NFT",
+          description: "Web3 NFT Collection",
+          image: imageURL,
+        });
 
-        const metadataHash = metadataRes.data.IpfsHash;
-        const tokenURI = `https://gateway.pinata.cloud/ipfs/${metadataHash}`;
+        const metadataURL = metadataRes.data.metadataURL;
 
-        // 3️⃣ Mint NFT
-        const mintTx = await nft.mint(tokenURI);
-        const receipt = await mintTx.wait();
-
-        const tokenId = receipt.logs[0].args.tokenId;
-
-        // 4️⃣ Approve Marketplace
-        await nft.approve(marketplace.target, tokenId);
-
-        // 5️⃣ List on Marketplace
+        // Mint
         const listingPrice = ethers.parseEther(price);
 
-        const listTx = await marketplace.listNFT(
-          nft.target,
-          tokenId,
-          listingPrice
-        );
+        const tx = await contract.createToken(metadataURL, listingPrice);
+        await tx.wait();
 
-        await listTx.wait();
+        alert("NFT Minted Successfully!");
 
-        alert("NFT Minted & Listed Successfully 🚀");
+        await loadMarketplaceItems(); // 🔥 auto refresh marketplace
 
-        reloadMarketplace();
         setLoading(false);
       };
     } catch (err) {
       console.error(err);
-      alert("Minting failed");
+      alert("Error creating NFT");
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ marginTop: "40px", marginBottom: "40px" }}>
+    <div style={styles.card}>
       <h2>Create NFT</h2>
 
-      <input
-        type="file"
-        onChange={(e) => setImage(e.target.files[0])}
-        style={{ marginBottom: "10px" }}
-      />
+      <input type="file" onChange={handleFileChange} style={styles.input} />
 
       <input
         type="text"
         placeholder="Price in ETH"
         value={price}
         onChange={(e) => setPrice(e.target.value)}
-        style={{
-          display: "block",
-          marginBottom: "15px",
-          padding: "8px",
-          width: "200px",
-        }}
+        style={styles.input}
       />
 
-      <button onClick={uploadAndMint} disabled={loading}>
-        {loading ? "Processing..." : "Mint & List NFT"}
+      <button style={styles.button} onClick={createNFT} disabled={loading}>
+        {loading ? "Minting..." : "Create NFT"}
       </button>
     </div>
   );
-}
+};
+
+const styles = {
+  card: {
+    background: "white",
+    padding: "30px",
+    borderRadius: "20px",
+    marginBottom: "30px",
+    boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
+  },
+  input: {
+    display: "block",
+    margin: "15px auto",
+    padding: "10px",
+    width: "80%",
+    borderRadius: "10px",
+    border: "1px solid #ccc",
+  },
+  button: {
+    padding: "12px 25px",
+    borderRadius: "30px",
+    border: "none",
+    background: "#6A0DAD",
+    color: "white",
+    fontWeight: "bold",
+    cursor: "pointer",
+  },
+};
 
 export default CreateNFT;
