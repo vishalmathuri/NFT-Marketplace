@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract NFT is ERC721URIStorage, Ownable(msg.sender) {
+contract NFT is ERC721URIStorage, Ownable() {
     uint public tokenCount;
 
     constructor() ERC721("MarketplaceNFT", "MNFT") {}
