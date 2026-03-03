@@ -1,246 +1,121 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { ethers } from "ethers";
-import { getContracts } from "./utils/contract";
-import CreateNFT from "./components/CreateNFT";
+import CreateNFT from "./CreateNFT";
+import Marketplace from "./Marketplace";
+import NFTMarketplace from "./artifacts/contracts/NFTMarketplace.sol/NFTMarketplace.json";
 
-const SEPOLIA_CHAIN_ID = "0xaa36a7";
+const contractAddress = "YOUR_CONTRACT_ADDRESS"; // 👈 replace
 
 function App() {
-  const [account, setAccount] = useState("");
+  const [account, setAccount] = useState(null);
+  const [contract, setContract] = useState(null);
   const [items, setItems] = useState([]);
-  const [nft, setNFT] = useState(null);
-  const [marketplace, setMarketplace] = useState(null);
   const [loading, setLoading] = useState(true);
-
-  const ensureSepolia = async () => {
-    const chainId = await window.ethereum.request({
-      method: "eth_chainId",
-    });
-
-    if (chainId !== SEPOLIA_CHAIN_ID) {
-      await window.ethereum.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: SEPOLIA_CHAIN_ID }],
-      });
-    }
-  };
-
-  const loadMarketplace = useCallback(async () => {
-    try {
-      setLoading(true);
-      await ensureSepolia();
-
-      const contracts = await getContracts();
-      if (!contracts) return;
-
-      setNFT(contracts.nft);
-      setMarketplace(contracts.marketplace);
-
-      const itemCount = Number(await contracts.marketplace.itemCount());
-      const itemsArray = [];
-
-      for (let i = 1; i <= itemCount; i++) {
-        const item = await contracts.marketplace.items(i);
-
-        if (!item.sold) {
-          itemsArray.push({
-            itemId: Number(item.itemId),
-            tokenId: Number(item.tokenId),
-            price: item.price,
-          });
-        }
-      }
-
-      setItems(itemsArray);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   const connectWallet = async () => {
     const provider = new ethers.BrowserProvider(window.ethereum);
     const accounts = await provider.send("eth_requestAccounts", []);
+    const signer = await provider.getSigner();
+
+    const marketplace = new ethers.Contract(
+      contractAddress,
+      NFTMarketplace.abi,
+      signer
+    );
+
     setAccount(accounts[0]);
-    await loadMarketplace();
+    setContract(marketplace);
   };
 
-  const buyNFT = async (item) => {
-    const tx = await marketplace.buyNFT(item.itemId, {
-      value: item.price,
-    });
-    await tx.wait();
-    loadMarketplace();
+  const loadMarketplaceItems = async () => {
+    if (!contract) return;
+
+    setLoading(true);
+    const data = await contract.fetchMarketItems();
+    setItems(data);
+    setLoading(false);
   };
 
   useEffect(() => {
-    const checkConnection = async () => {
-      if (!window.ethereum) return;
+    connectWallet();
+  }, []);
 
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const accounts = await provider.send("eth_accounts", []);
-
-      if (accounts.length > 0) {
-        setAccount(accounts[0]);
-        await loadMarketplace();
-      } else {
-        setLoading(false);
-      }
-    };
-
-    checkConnection();
-  }, [loadMarketplace]);
+  useEffect(() => {
+    if (contract) loadMarketplaceItems();
+  }, [contract]);
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        width: "100%",
-        background:
-          "linear-gradient(135deg, #0f0c29, #302b63, #24243e)",
-        color: "#fff",
-      }}
-    >
-      {/* Navbar */}
-      <div
-        style={{
-          width: "100%",
-          padding: "20px 60px",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          background: "rgba(0,0,0,0.3)",
-          backdropFilter: "blur(15px)",
-          borderBottom: "1px solid rgba(255,255,255,0.1)",
-        }}
-      >
-        <h1
-          style={{
-            fontSize: "26px",
-            background: "linear-gradient(90deg,#a18cd1,#fbc2eb)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-          }}
-        >
-          💜 Royal NFT Marketplace
-        </h1>
+    <div style={styles.container}>
+      <div style={styles.overlay}></div>
 
-        {account ? (
-          <div
-            style={{
-              padding: "8px 18px",
-              borderRadius: "30px",
-              background: "rgba(255,255,255,0.1)",
-              fontSize: "14px",
-            }}
-          >
-            {account.slice(0, 6)}...{account.slice(-4)}
-          </div>
-        ) : (
-          <button
-            onClick={connectWallet}
-            style={{
-              padding: "10px 22px",
-              borderRadius: "25px",
-              border: "none",
-              background: "linear-gradient(90deg,#a18cd1,#fbc2eb)",
-              color: "#000",
-              fontWeight: "bold",
-              cursor: "pointer",
-            }}
-          >
+      <div style={styles.content}>
+        <h1 style={styles.title}>Royal Purple Web3 NFT Marketplace</h1>
+
+        {!account ? (
+          <button style={styles.button} onClick={connectWallet}>
             Connect Wallet
           </button>
-        )}
-      </div>
-
-      {/* Content */}
-      <div
-        style={{
-          width: "100%",
-          padding: "50px 80px",
-        }}
-      >
-        <CreateNFT
-          nft={nft}
-          marketplace={marketplace}
-          reloadMarketplace={loadMarketplace}
-        />
-
-        <h2
-          style={{
-            marginTop: "70px",
-            fontSize: "32px",
-            marginBottom: "20px",
-          }}
-        >
-          Marketplace
-        </h2>
-
-        {loading ? (
-          <p>Loading NFTs...</p>
-        ) : items.length === 0 ? (
-          <p>No NFTs available</p>
         ) : (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns:
-                "repeat(auto-fit, minmax(280px, 1fr))",
-              gap: "30px",
-            }}
-          >
-            {items.map((item) => (
-              <div
-                key={item.itemId}
-                style={{
-                  padding: "25px",
-                  borderRadius: "20px",
-                  background: "rgba(255,255,255,0.05)",
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  backdropFilter: "blur(20px)",
-                  boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
-                  transition: "0.3s ease",
-                }}
-              >
-                <h3 style={{ marginBottom: "15px" }}>
-                  NFT #{item.tokenId}
-                </h3>
+          <>
+            <CreateNFT contract={contract} loadMarketplaceItems={loadMarketplaceItems} />
 
-                <p
-                  style={{
-                    marginBottom: "20px",
-                    fontSize: "18px",
-                    color: "#d1c4e9",
-                  }}
-                >
-                  {ethers.formatEther(item.price)} ETH
-                </p>
+            <h2 style={styles.sectionTitle}>Marketplace</h2>
 
-                <button
-                  onClick={() => buyNFT(item)}
-                  style={{
-                    width: "100%",
-                    padding: "12px",
-                    borderRadius: "12px",
-                    border: "none",
-                    background:
-                      "linear-gradient(90deg,#a18cd1,#fbc2eb)",
-                    color: "#000",
-                    fontWeight: "bold",
-                    cursor: "pointer",
-                  }}
-                >
-                  Buy NFT
-                </button>
-              </div>
-            ))}
-          </div>
+            {loading ? (
+              <p style={{ color: "white" }}>Loading NFTs...</p>
+            ) : (
+              <Marketplace items={items} contract={contract} />
+            )}
+          </>
         )}
       </div>
     </div>
   );
 }
+
+const styles = {
+  container: {
+    minHeight: "100vh",
+    width: "100%",
+    background: "linear-gradient(135deg, #4B0082, #6A0DAD, #8A2BE2)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+    overflow: "hidden",
+  },
+  overlay: {
+    position: "absolute",
+    width: "200%",
+    height: "200%",
+    background:
+      "radial-gradient(circle at 30% 30%, rgba(255,255,255,0.1), transparent)",
+    animation: "pulse 6s infinite alternate",
+  },
+  content: {
+    zIndex: 2,
+    width: "90%",
+    maxWidth: "1200px",
+    textAlign: "center",
+  },
+  title: {
+    color: "white",
+    fontSize: "40px",
+    marginBottom: "30px",
+  },
+  sectionTitle: {
+    color: "white",
+    marginTop: "40px",
+  },
+  button: {
+    padding: "12px 25px",
+    borderRadius: "30px",
+    border: "none",
+    background: "#FFD700",
+    fontWeight: "bold",
+    cursor: "pointer",
+    marginBottom: "20px",
+  },
+};
 
 export default App;
