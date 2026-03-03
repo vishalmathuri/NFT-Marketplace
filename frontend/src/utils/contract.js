@@ -2,7 +2,7 @@ import { BrowserProvider, Contract } from "ethers";
 import marketplaceArtifact from "../abis/Marketplace.json";
 import nftArtifact from "../abis/NFT.json";
 
-// !! Ensure these addresses match your latest terminal output !!
+// 🔥 Your deployed addresses
 const marketplaceAddress = "0x9f4D4322c5231943f8bb3A3B0102B8370d561133";
 const nftAddress = "0x5257a7E5F95FB75393Ab9fc943f5aE5DBc3b3Ab7";
 
@@ -13,12 +13,6 @@ export async function getContracts() {
 
   const provider = new BrowserProvider(window.ethereum);
   const signer = await provider.getSigner();
-
-  // VALIDATION: Check if contract code exists at this address on the current network
-  const code = await provider.getCode(marketplaceAddress);
-  if (code === "0x") {
-    throw new Error("No contract found at address. Check your network!");
-  }
 
   const marketplace = new Contract(
     marketplaceAddress,
