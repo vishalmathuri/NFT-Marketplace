@@ -1,98 +1,81 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import axios from "axios";
-import { ethers } from "ethers";
+import { parseEther, ZeroAddress } from "ethers";
+import { backendURL } from "../utils/contract";
 
-const backendURL = "https://nft-marketplace-r1az.onrender.com";
-
-const CreateNFT = ({ marketplace, nft, loadMarketplaceItems }) => {
+function readDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Could not read image. Select it again."));
+    reader.onabort = () => reject(new Error("Image reading was cancelled."));
+    reader.readAsDataURL(file);
+  });
+}
+const CreateNFT = ({ wallet, runAction, busy }) => {
+  const { marketplace, nft, signer } = wallet;
   const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null); // State for image preview
+  const [preview, setPreview] = useState(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
-  const fileInputRef = useRef(null); // Ref for custom file input click
-
-  const handleFileChange = (e) => {
-    const selectedFile = e.target.files[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      setPreview(URL.createObjectURL(selectedFile)); // Create local URL for preview
-    } else {
-      setFile(null);
-      setPreview(null);
+  const [mintedToken, setMintedToken] = useState(null);
+  const fileInputRef = useRef(null);
+  useEffect(() => {
+    if (!file) { setPreview(null); return; }
+    const url = URL.createObjectURL(file); setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  const handleFileChange = event => {
+    const selected = event.target.files[0];
+    if (selected && (!["image/png", "image/jpeg", "image/webp"].includes(selected.type) || selected.size > 5 * 1024 * 1024)) {
+      setFile(null); event.target.value = ""; setStatus("Select a PNG, JPEG or WebP image no larger than 5 MB."); return;
     }
+    setFile(selected || null); setStatus("");
   };
-
   const createNFT = async () => {
-    if (!file || !price || !name || !description) return alert("Please fill in all fields (Name, Description, File, and Price)");
-
-    try {
-      setLoading(true);
-      setStatus("1/4: Uploading to IPFS...");
-
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onloadend = async () => {
-        try {
-          // A. Upload Image & Metadata to Pinata
-          const imageRes = await axios.post(`${backendURL}/upload-image`, { imageBase64: reader.result });
-          const imageURL = imageRes.data.imageURL || imageRes.data.imageUrl;
-
-          const metadataRes = await axios.post(`${backendURL}/upload-metadata`, {
-            name: name,
-            description: description,
-            image: imageURL
-          });
-          const metadataURL = metadataRes.data.metadataURL || metadataRes.data.metadataUrl;
-
-          // B. Mint the NFT
-          setStatus("2/4: Minting NFT...");
-          const mintTx = await nft.mint(metadataURL); // Ensure your NFT.sol has this function!
-          const receipt = await mintTx.wait();
-          
-          // Find the tokenId from the transfer event
-          const event = receipt.logs.find(log => log.fragment?.name === 'Transfer');
-          const tokenId = event.args.tokenId;
-
-          // C. Approve Marketplace to move this NFT
-          setStatus("3/4: Approving Marketplace...");
-          // In ethers v6, use marketplace.target instead of marketplace.address
-          const approveTx = await nft.setApprovalForAll(marketplace.target || marketplace.address, true);
-          await approveTx.wait();
-
-          // D. List on Marketplace (Matches listNFT in Marketplace.sol)
-          setStatus("4/4: Listing on Marketplace...");
-          const listingPrice = ethers.parseEther(price);
-          // In ethers v6, use nft.target instead of nft.address
-          const listTx = await marketplace.listNFT(nft.target || nft.address, tokenId, listingPrice);
-          await listTx.wait();
-
-          alert("NFT Listed Successfully! 🚀");
-          
-          // Clear form and preview
-          setName("");
-          setDescription("");
-          setFile(null);
-          setPreview(null);
-          setPrice("");
-          // Clear file input ref value as well
-          if(fileInputRef.current) fileInputRef.current.value = "";
-          
-          setTimeout(() => loadMarketplaceItems(), 2000);
-        } catch (err) {
-          console.error(err);
-          alert("Transaction failed: " + err.message);
-        } finally {
-          setLoading(false);
-          setStatus("");
+    setLoading(true);
+    const success = await runAction("NFT listing", async ({ transact, assertSession, report }) => {
+      let listingPrice;
+      try { listingPrice = parseEther(price); } catch { throw new Error("Enter a valid ETH price, with at most 18 decimals."); }
+      if (listingPrice <= 0n) throw new Error("Listing price must be greater than zero.");
+      let tokenId = mintedToken;
+      if (!tokenId) {
+        if (!file || !name.trim() || !description.trim()) throw new Error("Fill in the name, description, artwork and price.");
+        setStatus("1/4: Authorize IPFS uploads…"); report("Sign the upload access message in your wallet. It does not send a transaction.");
+        const client = axios.create({ baseURL: backendURL, timeout: 35000 });
+        const challenge = (await client.post("/auth/challenge", { address: wallet.account })).data;
+        await assertSession();
+        const signature = await signer.signMessage(challenge.message);
+        await assertSession();
+        const { token } = (await client.post("/auth/verify", { nonce: challenge.nonce, signature })).data;
+        client.defaults.headers.common.Authorization = `Bearer ${token}`;
+        setStatus("1/4: Uploading image and metadata…"); report("Uploading artwork and metadata to IPFS…");
+        const imageBase64 = await readDataURL(file);
+        const { imageURL } = (await client.post("/upload-image", { imageBase64 })).data;
+        const { metadataURL } = (await client.post("/upload-metadata", { name: name.trim(), description: description.trim(), image: imageURL })).data;
+        setStatus("2/4: Minting NFT…");
+        const receipt = await transact("Mint NFT", () => nft.mint(metadataURL));
+        for (const log of receipt.logs) {
+          if (log.address.toLowerCase() !== nft.target.toLowerCase()) continue;
+          try {
+            const event = nft.interface.parseLog(log);
+            if (event?.name === "Transfer" && event.args.from === ZeroAddress && event.args.to.toLowerCase() === wallet.account.toLowerCase()) tokenId = event.args.tokenId.toString();
+          } catch { /* Unrelated event. */ }
         }
-      };
-    } catch (error) {
-      console.error(error);
-      setLoading(false);
-    }
+        if (!tokenId) throw new Error("Mint confirmed but token ID was not found. Check the mint transaction before retrying.");
+        setMintedToken(tokenId);
+      }
+      setStatus("3/4: Approving this NFT…");
+      await transact("Approve NFT", () => nft.approve(marketplace.target, tokenId));
+      setStatus("4/4: Listing NFT…");
+      await transact("List NFT", () => marketplace.listNFT(nft.target, tokenId, listingPrice));
+      setName(""); setDescription(""); setFile(null); setPrice(""); setMintedToken(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    });
+    setLoading(false); setStatus(success ? "NFT listed successfully." : "See the transaction message above. If already minted, retry listing this NFT.");
   };
 
   return (
@@ -106,13 +89,18 @@ const CreateNFT = ({ marketplace, nft, loadMarketplaceItems }) => {
       )}
 
       <div style={styles.card}>
+        {!loading && status && <p role="status" style={{ color: "#4B0082", marginBottom: "12px" }}>{status}</p>}
+        {mintedToken && <p style={{ color: "#4B0082", marginBottom: "12px" }}>NFT #{mintedToken} is minted in your wallet. Retry listing; you will not mint again. If you change wallets or reload, recover it using the instructions in the README.</p>}
         <h2 style={styles.title}>Mint New Asset</h2>
         <p style={styles.subtitle}>Fill in the details to create your unique NFT</p>
-        
+
         {/* Name Input Group */}
         <div style={styles.inputGroup}>
-          <label style={styles.label}>Asset Name</label>
+          <label htmlFor="asset-name" style={styles.label}>Asset Name</label>
           <input
+            id="asset-name"
+            maxLength={100}
+            disabled={busy || Boolean(mintedToken)}
             type="text"
             placeholder="e.g. Royal Purple Crown"
             value={name}
@@ -123,8 +111,9 @@ const CreateNFT = ({ marketplace, nft, loadMarketplaceItems }) => {
 
         {/* Description Input Group */}
         <div style={styles.inputGroup}>
-          <label style={styles.label}>Description</label>
+          <label htmlFor="asset-description" style={styles.label}>Description</label>
           <textarea
+            id="asset-description" maxLength={2000} disabled={busy || Boolean(mintedToken)}
             placeholder="Provide a detailed description of your asset..."
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -134,19 +123,22 @@ const CreateNFT = ({ marketplace, nft, loadMarketplaceItems }) => {
 
         {/* Custom File Upload Area */}
         <div style={styles.inputGroup}>
-          <label style={styles.label}>Upload Artwork</label>
+          <label htmlFor="asset-file" style={styles.label}>Upload Artwork (PNG, JPEG, WebP; max 5 MB)</label>
           {/* We hide the native input */}
           <input
+            id="asset-file" disabled={busy || Boolean(mintedToken)}
             type="file"
             ref={fileInputRef}
             onChange={handleFileChange}
             style={styles.hiddenFileInput}
-            accept="image/*"
+            accept="image/png,image/jpeg,image/webp"
           />
           {/* We style this div to look like an upload area */}
-          <div 
-            style={styles.customUploadArea} 
-            onClick={() => fileInputRef.current.click()}
+          <div
+            style={styles.customUploadArea}
+            role="button" tabIndex={0} aria-label="Select NFT artwork"
+            onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !busy && !mintedToken) { event.preventDefault(); fileInputRef.current.click(); } }}
+            onClick={() => { if (!busy && !mintedToken) fileInputRef.current.click(); }}
           >
             {preview ? (
               <img src={preview} alt="NFT Preview" style={styles.previewImage} />
@@ -161,9 +153,10 @@ const CreateNFT = ({ marketplace, nft, loadMarketplaceItems }) => {
 
         {/* Price Input Group */}
         <div style={styles.inputGroup}>
-          <label style={styles.label}>Listing Price (ETH)</label>
+          <label htmlFor="asset-price" style={styles.label}>Listing Price (ETH)</label>
           <input
-            type="number"
+            id="asset-price" disabled={busy}
+            type="text" inputMode="decimal"
             placeholder="e.g. 0.05"
             value={price}
             step="0.001"
@@ -173,15 +166,15 @@ const CreateNFT = ({ marketplace, nft, loadMarketplaceItems }) => {
         </div>
 
         {/* Create Button */}
-        <button 
+        <button
           style={{
-            ...styles.button, 
-            ...(loading ? styles.buttonDisabled : styles.buttonEnabled)
-          }} 
-          onClick={createNFT} 
-          disabled={loading}
+            ...styles.button,
+            ...(busy ? styles.buttonDisabled : styles.buttonEnabled)
+          }}
+          onClick={createNFT}
+          disabled={busy}
         >
-          {loading ? "Processing..." : "Mint & List NFT 🚀"}
+          {loading ? "Processing..." : mintedToken ? "Retry listing minted NFT" : "Mint & List NFT 🚀"}
         </button>
       </div>
     </div>
@@ -245,7 +238,7 @@ const styles = {
   },
   // We apply focus styles via hover helper logic or separate CSS (hard to do inline cleanly)
   // For simplicity, I've just styled the base state well.
-  
+
   // Custom File Upload Styling
   hiddenFileInput: {
     display: "none",
@@ -282,7 +275,7 @@ const styles = {
     height: "100%",
     objectFit: "cover",
   },
-  
+
   // Button Styling
   button: {
     display: "block",
@@ -306,7 +299,7 @@ const styles = {
     cursor: "not-allowed",
   },
   // These effects are applied in JSX via onMouseEnter/onMouseLeave (optional) or separate CSS
-  
+
   // Loading Overlay styling
   loadingOverlay: {
     position: "absolute",
@@ -314,7 +307,7 @@ const styles = {
     left: 0,
     width: "100%",
     height: "100%",
-    background: "rgba(12, 126, 50, 0.9)",
+    background: "rgba(255, 255, 255, 0.95)",
     borderRadius: "25px",
     display: "flex",
     flexDirection: "column",
@@ -339,22 +332,5 @@ const styles = {
   },
 };
 
-// Optional: Add simple spinner CSS if possible (hard with inline styles, usually needs separate CSS)
-const styleTag = document.createElement("style");
-styleTag.innerHTML = `
-  @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-  }
-  input:focus, textarea:focus {
-    border-color: #6A0DAD !important;
-    box-shadow: 0 0 0 3px rgba(106, 13, 173, 0.1) !important;
-  }
-  .customUploadAreaHover:hover {
-    border-color: #6A0DAD !important;
-    background: #fdfafd !important;
-  }
-`;
-document.head.appendChild(styleTag);
 
 export default CreateNFT;

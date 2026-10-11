@@ -1,35 +1,18 @@
-const hre = require("hardhat");
-
+const { ethers } = require("hardhat");
+require("dotenv").config();
 async function main() {
-  const [signer] = await hre.ethers.getSigners();
-
-  console.log("Listing with account:", await signer.getAddress());
-
-  const nftAddress = "0x90499F4d447014434aA58DFf68321F9eE862faA3";
-  const marketplaceAddress = "0xe154768d101702137207f4B1f50b35E78036E06A";
-
-  const NFT = await hre.artifacts.readArtifact("NFT");
-  const Marketplace = await hre.artifacts.readArtifact("Marketplace");
-
-  const nft = new hre.ethers.Contract(nftAddress, NFT.abi, signer);
-  const marketplace = new hre.ethers.Contract(marketplaceAddress, Marketplace.abi, signer);
-
-  const tokenId = 1;
-  const price = hre.ethers.parseEther("0.01");
-
-  // 🔥 IMPORTANT: Approve marketplace first
-  let tx = await nft.setApprovalForAll(marketplaceAddress, true);
-  await tx.wait();
-  console.log("Marketplace approved");
-
-  // Now list
-  tx = await marketplace.listNFT(nftAddress, tokenId, price);
-  await tx.wait();
-
-  console.log("✅ NFT Listed Successfully!");
+  const { NFT_ADDRESS, MARKETPLACE_ADDRESS, TOKEN_ID, LISTING_PRICE_ETH } = process.env;
+  if (!ethers.isAddress(NFT_ADDRESS || "") || !ethers.isAddress(MARKETPLACE_ADDRESS || "") || !/^\d+$/.test(TOKEN_ID || "") || !LISTING_PRICE_ETH) throw new Error("Set NFT_ADDRESS, MARKETPLACE_ADDRESS, TOKEN_ID and LISTING_PRICE_ETH locally.");
+  const [signer] = await ethers.getSigners();
+  if (!signer) throw new Error("Configure PRIVATE_KEY locally.");
+  const nft = await ethers.getContractAt("NFT", NFT_ADDRESS);
+  const marketplace = await ethers.getContractAt("Marketplace", MARKETPLACE_ADDRESS);
+  if ((await nft.ownerOf(TOKEN_ID)).toLowerCase() !== signer.address.toLowerCase()) throw new Error("Connected wallet does not own this NFT.");
+  await marketplace.proceeds(signer.address);
+  const price = ethers.parseEther(LISTING_PRICE_ETH);
+  if (price <= 0n) throw new Error("Price must be positive.");
+  await (await nft.approve(MARKETPLACE_ADDRESS, TOKEN_ID)).wait();
+  await (await marketplace.listNFT(NFT_ADDRESS, TOKEN_ID, price)).wait();
+  console.log("NFT listed:", TOKEN_ID);
 }
-
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+main().catch(error => { console.error(error.message); process.exitCode = 1; });

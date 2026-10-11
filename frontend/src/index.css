@@ -81,3 +81,15 @@ button {
 button:hover {
   background: #ffe0cc;
 }
+.network-label { margin-bottom: 20px; color: #ddd; }
+.wallet-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 14px; margin: 20px auto; }
+.wallet-bar button, .refresh-button { width: auto; padding: 10px 20px; }
+.refresh-button { margin: 16px; }
+.notice { max-width: 750px; margin: 20px auto; padding: 16px; border-radius: 12px; overflow-wrap: anywhere; background: #fff; color: #333; }
+.notice.error { background: #ffe9e9; color: #7c1523; }
+.notice.success { background: #dff7e6; color: #18552d; }
+.notice a { color: #5b2182; text-decoration: underline; }
+button:disabled { opacity: .55; cursor: not-allowed; }
+button:focus-visible, [role="button"]:focus-visible { outline: 3px solid #FFD700; outline-offset: 4px; }
+input:focus, textarea:focus { border-color: #6A0DAD !important; box-shadow: 0 0 0 3px rgba(106,13,173,.1); }
+@keyframes spin { to { transform: rotate(360deg); } }

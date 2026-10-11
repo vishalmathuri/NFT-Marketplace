@@ -1,30 +1,27 @@
-import { ethers } from "ethers";
+import { useState } from "react";
+import { formatEther } from "ethers";
 
-const NFTCard = ({ item, buyNFT }) => {
+const NFTCard = ({ item, buyNFT, cancelListing, account, canTransact, busy }) => {
+  const [imageFailed, setImageFailed] = useState(false);
+  const ownListing = item.seller.toLowerCase() === account?.toLowerCase();
   return (
     <div style={styles.card}>
       <div style={styles.imageContainer}>
-        {item.image ? (
-          <img 
-            src={item.image} 
-            alt={item.name} 
-            style={styles.image} 
-            onError={(e) => { e.target.src = "https://via.placeholder.com/250?text=IPFS+Loading+Error"; }}
-          />
-        ) : (
-          <div style={styles.placeholder}>No Image Found</div>
-        )}
+        {item.image && !imageFailed ? <img src={item.image} alt={item.name} style={styles.image} loading="lazy" referrerPolicy="no-referrer" onError={() => setImageFailed(true)} /> : <div style={styles.placeholder}>Artwork unavailable</div>}
       </div>
-      
       <div style={styles.details}>
         <h3 style={styles.name}>{item.name}</h3>
-        <p style={styles.description}>{item.description || "No description available"}</p>
+        <p style={styles.description}>{item.description}</p>
+        <p style={{ color: "#666", fontSize: "12px" }}>Token #{item.tokenId} · {item.nft.slice(0, 6)}…{item.nft.slice(-4)}</p>
+        {item.metadataUnavailable && <p style={{ color: "#785700", fontSize: "12px" }}>Metadata unavailable</p>}
         <div style={styles.footer}>
-          <span style={styles.price}>{ethers.formatEther(item.price)} ETH</span>
-          <button style={styles.buyButton} onClick={() => buyNFT(item.itemId, item.price)}>
-            Buy
+          <span style={styles.price}>{formatEther(item.price)} ETH</span>
+          <button style={{ ...styles.buyButton, width: "auto" }} disabled={busy || !canTransact}
+            onClick={() => ownListing ? cancelListing(item.itemId) : buyNFT(item.itemId, item.price)}>
+            {ownListing ? "Cancel listing" : "Buy"}
           </button>
         </div>
+        {!canTransact && <p style={{ color: "#666", fontSize: "12px", marginTop: "8px" }}>Connect on Sepolia to transact.</p>}
       </div>
     </div>
   );
